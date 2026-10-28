@@ -4,12 +4,13 @@ An agentic RAG system that diagnoses production incidents by reasoning over **li
 (Prometheus), **semantically indexed logs**, **deploy history** (GitHub) and **long-term memory
 of past incidents**.
 
-> Status: **Phase 1 of 7**. The demo service, fault injection, structured logs and metrics are done.
+> Status: **Phase 2 of 7**. The demo service, fault injection, metrics and the log ingester are done.
 
 ## How it works
 
 ```
-ShopAPI (FastAPI) ──JSON logs──► log ingester ──► Chroma        (Phase 2)
+ShopAPI (FastAPI) ──JSON logs──► log ingester ──► SQLite (raw lines)
+       │                                     └─► Chroma (window summaries)
        │ /metrics ─────────────► Prometheus
        ▼
  chaos switches                  Incident agent (LLM + tools)    (Phase 3)
@@ -50,6 +51,32 @@ Each fault shows realistic symptoms in metrics and logs and never names itself. 
 is written to `logs/chaos_events.jsonl`, which serves as **ground truth for evaluation**. The agent
 must never read this file.
 
+## Log ingestion and search
+
+The ingester tails `logs/shopapi.log`. It stores every line in SQLite for exact lookups and indexes
+one **summary per 30-second window** in Chroma for semantic search. Embedding each request line would bury
+the index in thousands of near-identical `GET /products 200` entries. A window summary
+holds traffic stats, latency percentiles, the slowest routes and the distinct warnings and errors, with numbers
+and IDs templated out so that repeats collapse (`ERROR x15: Payment failed: Timeout ... after <N>ms`).
+
+- **Embeddings:** all-MiniLM-L6-v2 (ONNX, via Chroma). Runs locally and needs no API key or PyTorch.
+- **Crash-safe:** each batch of lines and the file checkpoint commit in one transaction. On restart it
+  re-indexes the last 5 minutes, and windows are upserted by start time, so nothing is duplicated.
+- **Handles rotation:** when the log rotates, the tailer drains the rest of `shopapi.log.1` before switching files.
+- **Retention:** 7 days (`COPILOT_RETENTION_DAYS`).
+
+```bash
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt        # macOS/Linux: .venv/bin/pip
+
+.venv/Scripts/python -m copilot.ingest               # follow the log (Ctrl+C to stop)
+.venv/Scripts/python -m copilot.ingest --once        # or: ingest what's there and exit
+
+.venv/Scripts/python -m copilot.search "payment provider failing" --since 30m --issues
+.venv/Scripts/python -m copilot.search "database is slow" --raw 3   # also show raw lines
+.venv/Scripts/python -m pytest
+```
+
 ## Metrics exposed
 
 | Metric | Labels |
@@ -65,7 +92,7 @@ must never read this file.
 ## Roadmap
 
 1. ✅ Demo service, chaos switches, logs, metrics, Prometheus alerts
-2. Log ingester → Chroma (incremental, time-windowed chunks)
+2. ✅ Log ingester → SQLite + Chroma (incremental, time-windowed summaries)
 3. Agent loop with tools (Groq / Gemini free tier, swappable)
 4. Incident memory (postmortems, "this looks like INC-004")
 5. Alertmanager webhook → auto-investigation → Discord

@@ -1,0 +1,3 @@
+# Copilot (ingester, agent, UI) — runs locally, outside Docker.
+chromadb==1.5.9
+pytest==9.1.1

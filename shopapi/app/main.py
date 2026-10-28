@@ -96,11 +96,12 @@ async def create_order(order: OrderIn):
         raise HTTPException(404, "product not found")
 
     await db.query("products", "select")
-    await charge_payment(product["price"] * order.quantity)
+    total = round(product["price"] * order.quantity, 2)
+    await charge_payment(total)
     await db.query("orders", "insert")
 
     order_id = len(db.ORDERS) + 1
-    db.ORDERS[order_id] = {"id": order_id, **order.model_dump(), "total": product["price"] * order.quantity}
+    db.ORDERS[order_id] = {"id": order_id, **order.model_dump(), "total": total}
 
     chaos.leak()
     cache = chaos.leaked_bytes()
