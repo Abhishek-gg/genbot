@@ -1,5 +1,6 @@
 """Chroma index of log-window summaries, embedded locally with all-MiniLM-L6-v2 (ONNX)."""
 from pathlib import Path
+from urllib.parse import urlparse
 
 import chromadb
 
@@ -7,9 +8,19 @@ COLLECTION = "log_windows"
 BATCH = 256
 
 
+def connect(location: str | Path):
+    """An http(s) URL connects to a Chroma server; anything else is a folder for embedded mode,
+    which is only safe when a single process uses it (tests, one-off scripts)."""
+    loc = str(location)
+    if loc.startswith(("http://", "https://")):
+        u = urlparse(loc)
+        return chromadb.HttpClient(host=u.hostname, port=u.port or 8000, ssl=u.scheme == "https")
+    return chromadb.PersistentClient(path=loc)
+
+
 class WindowIndex:
-    def __init__(self, path: Path):
-        client = chromadb.PersistentClient(path=str(path))
+    def __init__(self, location: str | Path):
+        client = connect(location)
         self.col = client.get_or_create_collection(COLLECTION, configuration={"hnsw": {"space": "cosine"}})
 
     def upsert(self, windows: list[tuple[str, dict]]) -> None:

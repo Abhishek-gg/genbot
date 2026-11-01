@@ -25,12 +25,15 @@ class Ingester:
         self.store, self.index, self.tailer, self.window_s = store, index, tailer, window_s
         self.dirty: set[float] = set()  # windows with new lines that still need (re)indexing
 
-    def recover(self) -> None:
-        if (last := self.store.max_ts()) is not None:
-            w = window_start(last - RECOVER_S, self.window_s)
-            while w <= last:
-                self.dirty.add(w)
-                w += self.window_s
+    def recover(self, full: bool = False) -> None:
+        """Mark recent windows (or, with full=True, every stored window) for re-indexing."""
+        last = self.store.max_ts()
+        if last is None:
+            return
+        first = self.store.min_ts() if full else last - RECOVER_S
+        self.dirty.update(
+            window_start(ts, self.window_s) for ts in self.store.window_times(first, last + 1, self.window_s)
+        )
 
     def poll(self) -> int:
         lines = self.tailer.read_new()
@@ -61,13 +64,15 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--once", action="store_true", help="ingest the current file and exit")
     ap.add_argument("--poll", type=float, default=1.0, help="seconds between file checks")
+    ap.add_argument("--reindex", action="store_true", help="rebuild every window in Chroma from SQLite first")
     args = ap.parse_args()
 
     store = LogStore(config.LOG_DB)
-    index = WindowIndex(config.CHROMA_DIR)
+    index = WindowIndex(config.CHROMA)
     ing = Ingester(store, index, Tailer(config.LOG_FILE, store.checkpoint(SOURCE)), config.WINDOW_S)
-    ing.recover()
-    print(f"[ingest] {config.LOG_FILE} -> {config.DATA_DIR} ({config.WINDOW_S}s windows)", flush=True)
+    ing.recover(full=args.reindex)
+    print(f"[ingest] {config.LOG_FILE} -> {config.LOG_DB} + Chroma at {config.CHROMA} "
+          f"({config.WINDOW_S}s windows)", flush=True)
 
     if args.once:
         n = ing.poll()

@@ -28,5 +28,15 @@ services:
     depends_on: [shopapi]
     restart: unless-stopped
 
+  # Vector DB as a server: the ingester writes and the agent reads at the same time,
+  # which Chroma's embedded on-disk mode does not support across processes.
+  chroma:
+    image: chromadb/chroma:1.5.9
+    ports: ["8001:8000"]
+    volumes:
+      - chroma-data:/data
+    restart: unless-stopped
+
 volumes:
   prometheus-data:
+  chroma-data:

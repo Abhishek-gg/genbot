@@ -63,3 +63,12 @@ def test_checkpoint_prevents_duplicates_after_restart(setup):
     restarted = Tailer(log, store.checkpoint("shopapi"))
     assert restarted.read_new() == []
     assert len(store.query(T0, T0 + 30)) == 2
+
+
+def test_reindex_marks_every_stored_window(setup):
+    log, store, ing = setup
+    log.write_text("".join(line(T0 + t) for t in (0, 5, 31, 95)))  # windows T0, T0+30, T0+90
+    ing.poll()
+    ing.flush(None)
+    ing.recover(full=True)
+    assert ing.dirty == {T0, T0 + 30, T0 + 90}

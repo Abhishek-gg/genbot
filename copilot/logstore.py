@@ -77,6 +77,7 @@ class LogStore:
         level: str | None = None,
         route: str | None = None,
         trace_id: str | None = None,
+        contains: str | None = None,
         limit: int | None = None,
     ) -> list[dict]:
         sql = "SELECT * FROM logs WHERE ts >= ? AND ts < ?"
@@ -84,6 +85,9 @@ class LogStore:
         if level:
             sql += " AND level = ?"
             args.append(level.upper())
+        if contains:
+            sql += " AND msg LIKE ?"
+            args.append(f"%{contains}%")
         if route:
             sql += " AND route = ?"
             args.append(route)
@@ -98,6 +102,14 @@ class LogStore:
 
     def max_ts(self) -> float | None:
         return self.db.execute("SELECT MAX(ts) FROM logs").fetchone()[0]
+
+    def min_ts(self) -> float | None:
+        return self.db.execute("SELECT MIN(ts) FROM logs").fetchone()[0]
+
+    def window_times(self, start: float, end: float, window_s: int) -> list[float]:
+        """Start times of windows in [start, end) that contain at least one line."""
+        sql = "SELECT DISTINCT CAST(ts / ? AS INTEGER) * ? FROM logs WHERE ts >= ? AND ts < ?"
+        return [float(r[0]) for r in self.db.execute(sql, (window_s, window_s, start, end))]
 
     def prune(self, before: float) -> int:
         with self.db:

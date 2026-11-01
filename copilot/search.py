@@ -33,7 +33,7 @@ def main() -> None:
     ap.add_argument("--raw", type=int, default=0, metavar="N", help="also print N raw warning/error lines per window")
     args = ap.parse_args()
 
-    index = WindowIndex(config.CHROMA_DIR)
+    index = WindowIndex(config.CHROMA)
     store = LogStore(config.LOG_DB) if args.raw else None
     hits = index.search(args.query, start=args.since, only_issues=args.issues, k=args.k)
     if not hits:
