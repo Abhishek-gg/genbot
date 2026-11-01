@@ -129,7 +129,7 @@ def test_parse_args_tolerates_empty():
 
 
 def test_specs_are_valid_tool_schemas():
-    names = [s["function"]["name"] for s in Toolbox.specs()]
+    names = [s["function"]["name"] for s in Toolbox("http://prom", None, None).specs()]
     assert names == ["service_health", "query_metrics", "search_logs", "get_log_lines", "get_recent_deploys"]
 
 

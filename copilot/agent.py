@@ -36,8 +36,8 @@ How to investigate:
    A dependency failure shows up on the routes that use it. A slow database shows up as slow queries.
    Saturation of the single process slows every route at once, without slow queries. Steady memory
    growth suggests a leak.
-5. Stop once the evidence is consistent. Use at most 6 tool calls.
-
+5. Stop once the evidence is consistent. Use at most 6 tool calls for the investigation.
+{memory}
 Never invent numbers, times or log messages: cite only what tools returned.
 
 Answer in this format:
@@ -45,7 +45,17 @@ Answer in this format:
 **Root cause**: the cause, with confidence (high, medium or low).
 **Evidence**: 2 to 5 bullets with numbers and UTC times.
 **Ruled out**: what you checked that is normal.
-**Next steps**: 1 to 3 concrete actions."""
+**Next steps**: 1 to 3 concrete actions.{memory_answer}"""
+
+MEMORY_PROMPT = """
+Incident memory:
+- Once service_health shows something abnormal now, call search_past_incidents with those symptoms. A past
+  incident is a lead, not proof: confirm the same cause in today's data before relying on it. If it matches and
+  was RESOLVED, recommend the fix that worked and cite its ID. An OPEN incident's diagnosis is unconfirmed.
+- When you have found the cause of a current problem, call save_postmortem once, as your last tool call,
+  with concrete symptoms (numbers and routes). Do not save anything if the service is healthy.
+"""
+MEMORY_ANSWER = "\n**Incident**: the ID you saved (and any matching past incident), or 'none'."
 
 FORCE_ANSWER = "You have used all your tool calls. Give your best answer now from the evidence so far."
 
@@ -78,13 +88,16 @@ class Agent:
         tokens_before = self.llm.usage["prompt_tokens"] + self.llm.usage["completion_tokens"]
 
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        tools = self.toolbox.specs()
+        has_memory = any(t["function"]["name"] == "save_postmortem" for t in tools)
+        system = SYSTEM_PROMPT.format(now=now, memory=MEMORY_PROMPT if has_memory else "",
+                                      memory_answer=MEMORY_ANSWER if has_memory else "")
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT.format(now=now)},
+            {"role": "system", "content": system},
             {"role": "user", "content": question},
         ]
         steps: list[Step] = []
         answer = ""
-        tools = self.toolbox.specs()
 
         while True:
             out_of_steps = len(steps) >= self.max_steps

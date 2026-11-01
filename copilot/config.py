@@ -21,6 +21,7 @@ _load_dotenv(ROOT / ".env")
 LOG_FILE = Path(os.getenv("COPILOT_LOG_FILE", ROOT / "logs" / "shopapi.log"))
 DATA_DIR = Path(os.getenv("COPILOT_DATA_DIR", ROOT / "data"))
 LOG_DB = DATA_DIR / "logs.db"
+INCIDENT_DB = DATA_DIR / "incidents.db"
 # Chroma server from docker-compose. A folder path here switches to embedded mode (single process only).
 CHROMA = os.getenv("CHROMA_URL", "http://localhost:8001")
 

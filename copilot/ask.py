@@ -11,6 +11,7 @@ from . import config
 from .agent import Agent, Step
 from .llm import PROVIDERS, ChatClient, LLMError
 from .logstore import LogStore
+from .memory import IncidentMemory
 from .tools import Toolbox
 from .vectorstore import WindowIndex
 
@@ -22,8 +23,10 @@ def build_agent(provider: str, model: str | None, on_step=None) -> Agent:
         LogStore(config.LOG_DB),
         github_repo=config.GITHUB_REPO,
         github_token=config.GITHUB_TOKEN,
+        memory=IncidentMemory(config.INCIDENT_DB, config.CHROMA),
     )
-    return Agent(ChatClient(provider, model), toolbox, on_step=on_step)
+    # 6 investigation steps + searching memory + saving the postmortem, with headroom.
+    return Agent(ChatClient(provider, model), toolbox, max_steps=10, on_step=on_step)
 
 
 def main() -> None:

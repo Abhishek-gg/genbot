@@ -4,7 +4,7 @@ An agentic RAG system that diagnoses production incidents by reasoning over **li
 (Prometheus), **semantically indexed logs**, **deploy history** (GitHub) and **long-term memory
 of past incidents**.
 
-> Status: **Phase 3 of 7**. The demo service, log ingester and the incident agent are built, and the agent has
+> Status: **Phase 4 of 7**. The demo service, log ingester, incident agent and incident memory are built, and the agent has
 > correctly diagnosed each of the five live scenarios (see [First live results](#first-live-results)).
 
 ## How it works
@@ -20,7 +20,8 @@ ShopAPI (FastAPI) ──JSON logs──► log ingester ──► SQLite (raw li
                                  ├─ search_logs     (semantic, Chroma)
                                  ├─ get_log_lines   (exact, SQLite)
                                  ├─ get_recent_deploys (versions + GitHub)
-                                 └─ search/save past incidents (memory, Phase 4)
+                                 ├─ search_past_incidents (memory, Chroma)
+                                 └─ save_postmortem       (memory, SQLite + Chroma)
 ```
 
 ## Quick start
@@ -98,6 +99,8 @@ is used, so every step can be inspected.
 | `search_logs` | Chroma | The most relevant 30-second log summaries |
 | `get_log_lines` | SQLite | Exact lines filtered by level, route, text or trace ID |
 | `get_recent_deploys` | Prometheus + GitHub | Which versions ran and when, plus recent commits |
+| `search_past_incidents` | Incident memory | Similar past incidents; resolved ones include the fix that worked |
+| `save_postmortem` | Incident memory | Saves this diagnosis as an open incident (`INC-007`) |
 
 Tools return compact text rather than raw data, because free LLM tiers allow only about 8K tokens per minute.
 Errors such as a bad PromQL query come back as text so the model can correct itself.
@@ -138,6 +141,40 @@ design fixes, both found by running against live data:
   found the previous incident's warnings and blamed them. `service_health` now lists current signals in the order
   they started and tells the agent the `minutes` value that covers only this incident.
 
+## Incident memory
+
+After diagnosing a current problem, the agent saves a postmortem: title, symptoms with numbers, root cause and a
+suggested fix. When the next incident starts, it searches those postmortems by symptoms, so it can say *"this
+matches INC-001, which was fixed by failing over to the backup payment provider"*.
+
+An LLM's diagnosis is not ground truth, so memory keeps **a human in the loop**:
+
+| Status | Meaning | Offered to the agent as |
+|---|---|---|
+| `open` | Saved by the agent, not yet reviewed | An unconfirmed lead |
+| `resolved` | An engineer confirmed it and recorded the fix that actually worked | A proven fix |
+| `rejected` | The diagnosis was wrong | Never shown again |
+
+Re-diagnosing the *same ongoing* incident (a similar open incident from the last 30 minutes) updates it instead of
+creating a duplicate. The same symptoms after it was resolved count as a recurrence and get a new ID.
+
+```bash
+.venv/Scripts/python -m copilot.incidents list
+.venv/Scripts/python -m copilot.incidents show INC-001
+.venv/Scripts/python -m copilot.incidents resolve INC-001 --fix "Failed over to the backup payment provider"
+.venv/Scripts/python -m copilot.incidents reject INC-002 --reason "Was a load test, not an outage"
+```
+
+### Live check
+
+| Step | What GenBot did |
+|---|---|
+| Payment fault, first time | Found no past incidents, diagnosed the gateway timeouts, saved **INC-001** |
+| Engineer resolves INC-001 | `--fix "Failed over to the backup payment provider"` |
+| Same fault recurs | Matched INC-001 (similarity 0.78), recommended its proven fix first, saved the recurrence as **INC-002** |
+| A different fault (slow DB) | No false match ("No similar past incidents"), saved **INC-003** |
+| Healthy | Saved nothing |
+
 ## Metrics exposed
 
 | Metric | Labels |
@@ -155,7 +192,7 @@ design fixes, both found by running against live data:
 1. ✅ Demo service, chaos switches, logs, metrics, Prometheus alerts
 2. ✅ Log ingester → SQLite + Chroma (incremental, time-windowed summaries)
 3. ✅ Agent loop with tools (Groq / Gemini / Ollama, swappable)
-4. Incident memory (postmortems, "this looks like INC-004")
+4. ✅ Incident memory (postmortems with human review, "this matches INC-001")
 5. Alertmanager webhook → auto-investigation → Discord
 6. Evaluation harness: inject N faults and score root-cause accuracy and time to diagnosis
 7. Streamlit UI showing the agent's reasoning steps, plus deployment

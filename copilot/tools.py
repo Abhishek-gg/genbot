@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import httpx
 
 from .logstore import LogStore
+from .memory import IncidentMemory
 from .vectorstore import WindowIndex
 
 MAX_SERIES = 8
@@ -117,11 +118,12 @@ class Toolbox:
         store: LogStore,
         github_repo: str | None = None,
         github_token: str | None = None,
+        memory: IncidentMemory | None = None,
         http: httpx.Client | None = None,
         clock=time.time,
     ):
         self.prom = prometheus_url.rstrip("/")
-        self.index, self.store = index, store
+        self.index, self.store, self.memory = index, store, memory
         self.repo, self.github_token = github_repo, github_token
         self.http = http or httpx.Client(timeout=20)
         self.clock = clock
@@ -132,6 +134,9 @@ class Toolbox:
             "get_log_lines": self.get_log_lines,
             "get_recent_deploys": self.get_recent_deploys,
         }
+        if memory is not None:
+            self._fns["search_past_incidents"] = self.search_past_incidents
+            self._fns["save_postmortem"] = self.save_postmortem
 
     def run(self, name: str, args: dict) -> str:
         fn = self._fns.get(name)
@@ -290,16 +295,53 @@ class Toolbox:
                     out.append(f"  {date} {c['sha'][:7]} {first_line}")
         return "\n".join(out)
 
+    # --- Incident memory -----------------------------------------------------------
+
+    def search_past_incidents(self, symptoms: str, k: int = 3) -> str:
+        hits = self.memory.search(symptoms, k=min(k, 5))
+        if not hits:
+            return "No similar past incidents."
+        out = ["Past incidents, most similar first:"]
+        for inc, similarity in hits:
+            if inc.status == "resolved":
+                status = f"RESOLVED by an engineer. Fix that worked: {inc.resolution}"
+            else:
+                status = f"OPEN, diagnosis not yet confirmed by an engineer. Suggested fix: {inc.suggested_fix or 'none'}"
+            out.append(f"- {inc.id} ({inc.date}, similarity {similarity}): {inc.title}\n"
+                       f"  Symptoms: {inc.symptoms}\n  Root cause: {inc.root_cause}\n  {status}")
+        return "\n".join(out)
+
+    def save_postmortem(self, title: str, symptoms: str, root_cause: str, suggested_fix: str = "",
+                        confidence: str = "") -> str:
+        inc, created = self.memory.save(title, symptoms, root_cause, suggested_fix, confidence)
+        if created:
+            return f"Saved as {inc.id} (open until an engineer confirms the fix)."
+        return f"Updated {inc.id}: it is the same ongoing incident, so no duplicate was created."
+
     # --- Schemas ----------------------------------------------------------------
 
-    @staticmethod
-    def specs() -> list[dict]:
+    def specs(self) -> list[dict]:
         def tool(name, description, properties, required=()):
             return {"type": "function", "function": {
                 "name": name, "description": description,
                 "parameters": {"type": "object", "properties": properties, "required": list(required)}}}
 
+        text = {"type": "string"}
         minutes = {"type": "number", "description": "How far back to look, in minutes."}
+        memory_tools = [
+            tool("search_past_incidents",
+                 "Search postmortems of past incidents by symptoms, e.g. '5xx on /orders, payment-gateway "
+                 "dependency errors'. Resolved incidents include the fix that worked.",
+                 {"symptoms": text, "k": {"type": "integer", "description": "Max results, up to 5."}}, ["symptoms"]),
+            tool("save_postmortem",
+                 "Save your diagnosis of the current incident to long-term memory. Call it once, at the end, "
+                 "only when something is wrong now.",
+                 {"title": {"type": "string", "description": "Short title, e.g. 'Payment gateway timeouts on /orders'"},
+                  "symptoms": {"type": "string", "description": "What was abnormal, with key numbers"},
+                  "root_cause": text, "suggested_fix": text,
+                  "confidence": {"type": "string", "enum": ["high", "medium", "low"]}},
+                 ["title", "symptoms", "root_cause"]),
+        ] if self.memory is not None else []
         return [
             tool("service_health",
                  "Overview of ShopAPI from live Prometheus metrics: traffic, 5xx ratio, p95 latency per route, "
@@ -329,7 +371,7 @@ class Toolbox:
                  "Which ShopAPI versions ran and when (from metrics), plus recent commits on GitHub. "
                  "Use it to check whether a deploy lines up with when a problem started.",
                  {"hours": {"type": "number", "description": "How far back to look, in hours."}}),
-        ]
+        ] + memory_tools
 
 
 def parse_args(raw: str) -> dict:

@@ -77,3 +77,17 @@ def test_long_tool_output_is_truncated():
                    {"role": "assistant", "content": "ok"}])
     result = Agent(llm, Verbose()).ask("?")
     assert len(result.steps[0].result) < 3100 and result.steps[0].result.endswith("(truncated)")
+
+
+def test_memory_instructions_only_when_memory_tools_exist():
+    class WithMemory(FakeTools):
+        @staticmethod
+        def specs():
+            return FakeTools.specs() + [{"type": "function", "function": {"name": "save_postmortem"}}]
+
+    done = {"role": "assistant", "content": "ok"}
+    plain, with_mem = FakeLLM([done]), FakeLLM([done])
+    Agent(plain, FakeTools()).ask("?")
+    Agent(with_mem, WithMemory()).ask("?")
+    assert "Incident memory" not in plain.requests[0][0][0]["content"]
+    assert "call save_postmortem once" in with_mem.requests[0][0][0]["content"]
