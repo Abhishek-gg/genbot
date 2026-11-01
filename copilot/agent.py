@@ -58,6 +58,21 @@ Incident memory:
 MEMORY_ANSWER = "\n**Incident**: the ID you saved (and any matching past incident), or 'none'."
 
 FORCE_ANSWER = "You have used all your tool calls. Give your best answer now from the evidence so far."
+MEMORY_STEPS = ("search_past_incidents", "save_postmortem")
+MEMORY_NUDGE = ("Before you answer: service_health shows a current incident, but you have not called {missing}. "
+                "Call search_past_incidents with the symptoms, then save_postmortem with your diagnosis, "
+                "then give your final answer.")
+
+
+def missing_memory_steps(steps: list["Step"]) -> list[str]:
+    """Memory steps the agent skipped although service_health reported a current incident.
+
+    Weaker models often skip them, so the loop enforces this checklist in code instead of
+    trusting the prompt alone."""
+    if not any(s.tool == "service_health" and "CURRENT INCIDENT" in s.result for s in steps):
+        return []
+    done = {s.tool for s in steps}
+    return [t for t in MEMORY_STEPS if t not in done]
 
 
 @dataclass
@@ -75,6 +90,7 @@ class Result:
     llm_calls: int = 0
     tokens: int = 0
     seconds: float = 0.0
+    model: str = ""  # the model that produced the answer (may be a fallback)
 
 
 class Agent:
@@ -98,6 +114,7 @@ class Agent:
         ]
         steps: list[Step] = []
         answer = ""
+        nudged = False
 
         while True:
             out_of_steps = len(steps) >= self.max_steps
@@ -106,6 +123,11 @@ class Agent:
             msg = self.llm.chat(messages, None if out_of_steps else tools)
             messages.append(msg)
             if not msg.get("tool_calls"):
+                missing = missing_memory_steps(steps) if has_memory and not nudged and not out_of_steps else []
+                if missing:  # send it back once to finish the checklist
+                    nudged = True
+                    messages.append({"role": "user", "content": MEMORY_NUDGE.format(missing=" or ".join(missing))})
+                    continue
                 answer = msg["content"].strip()
                 break
             for call in msg["tool_calls"]:
@@ -118,6 +140,7 @@ class Agent:
             llm_calls=usage["calls"] - calls_before,
             tokens=usage["prompt_tokens"] + usage["completion_tokens"] - tokens_before,
             seconds=time.perf_counter() - start,
+            model=getattr(self.llm, "model", ""),
         )
 
     def _run(self, call: dict, messages: list[dict]) -> Step:

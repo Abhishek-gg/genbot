@@ -1,0 +1,14 @@
+route:
+  receiver: genbot
+  # One group per service: alerts that fire together are one incident, investigated once.
+  group_by: [job]
+  group_wait: 30s       # wait for related alerts before notifying
+  group_interval: 5m    # minimum gap before notifying about new alerts in the same group
+  repeat_interval: 4h
+
+receivers:
+  - name: genbot
+    webhook_configs:
+      # The responder runs on the host (python -m copilot.responder), not in Docker.
+      - url: http://host.docker.internal:8090/alert
+        send_resolved: true

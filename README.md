@@ -4,7 +4,8 @@ An agentic RAG system that diagnoses production incidents by reasoning over **li
 (Prometheus), **semantically indexed logs**, **deploy history** (GitHub) and **long-term memory
 of past incidents**.
 
-> Status: **Phase 4 of 7**. The demo service, log ingester, incident agent and incident memory are built, and the agent has
+> Status: **Phase 5 of 7**. The demo service, log ingester, incident agent, incident memory and alert-driven
+> investigation are built, and the agent has
 > correctly diagnosed each of the five live scenarios (see [First live results](#first-live-results)).
 
 ## How it works
@@ -12,8 +13,8 @@ of past incidents**.
 ```
 ShopAPI (FastAPI) ──JSON logs──► log ingester ──► SQLite (raw lines)
        │                                     └─► Chroma server (window summaries)
-       │ /metrics ─────────────► Prometheus
-       ▼
+       │ /metrics ─────────────► Prometheus ──alerts──► Alertmanager ──webhook──► responder ──► Discord
+       ▼                                                                           │ (runs the agent)
  chaos switches                  Incident agent (LLM + tools)
  (latency, errors,               ├─ service_health  (key metrics + alerts, live)
   memory leak, CPU)              ├─ query_metrics   (custom PromQL, live)
@@ -38,6 +39,7 @@ docker compose up -d --build
 | http://localhost:8000/metrics | Raw Prometheus metrics |
 | http://localhost:9090 | Prometheus UI (see the **Alerts** tab) |
 | http://localhost:8001 | Chroma vector DB server (used by the ingester and the agent) |
+| http://localhost:9093 | Alertmanager (groups alerts and calls the responder) |
 
 The `loadgen` container sends about 5 requests per second, so there is always traffic. Logs go to `logs/shopapi.log`.
 
@@ -106,8 +108,10 @@ Tools return compact text rather than raw data, because free LLM tiers allow onl
 Errors such as a bad PromQL query come back as text so the model can correct itself.
 
 **LLM (free):** Groq is the default (`openai/gpt-oss-120b`). Gemini and a local Ollama model also work. All three
-use the OpenAI-compatible API, so one ~100-line client ([copilot/llm.py](copilot/llm.py)) covers them, and it
-retries rate limits using the server's `Retry-After` header.
+use the OpenAI-compatible API, so one small client ([copilot/llm.py](copilot/llm.py)) covers them. It handles
+free-tier limits in two ways: per-minute limits are retried using the server's `Retry-After` header, and an exhausted
+**daily** quota switches straight to a fallback model (`openai/gpt-oss-20b`), because free quotas are counted per
+model and waiting hours for a reset is pointless.
 
 ```bash
 cp .env.example .env          # then paste a free key from https://console.groq.com/keys
@@ -175,6 +179,31 @@ creating a duplicate. The same symptoms after it was resolved count as a recurre
 | A different fault (slow DB) | No false match ("No similar past incidents"), saved **INC-003** |
 | Healthy | Saved nothing |
 
+## Automatic investigation (alerts → Discord)
+
+GenBot doesn't wait to be asked. When a Prometheus alert fires:
+
+1. **Alertmanager** groups related alerts (30 s `group_wait`) and calls the responder's webhook.
+2. **The responder** ([copilot/responder.py](copilot/responder.py)) turns the alerts into a question and runs the agent
+   in a background worker, one investigation at a time. Repeats of the same alerts within 15 minutes are skipped;
+   a *new* alert in the same group triggers a fresh investigation.
+3. **The diagnosis is posted to Discord** as an embed titled with the alerts and the saved incident ID
+   (e.g. `🚨 HighErrorRate · INC-004`). When the alerts clear, a `✅ Resolved` message follows, with a reminder to
+   record the fix. If the investigation fails (e.g. the LLM is unreachable), that is posted too, instead of silence.
+
+Without `DISCORD_WEBHOOK_URL` in `.env`, messages are printed to the console instead.
+
+```bash
+.venv/Scripts/python -m copilot.ingest       # terminal 1: keep logs searchable
+.venv/Scripts/python -m copilot.responder    # terminal 2: listens on :8090 for Alertmanager
+python scripts/chaos.py set error_rate=0.5   # about 2 minutes later, GenBot posts its diagnosis
+```
+
+**Checklist guardrail.** On the smaller fallback model, the agent diagnosed the fault correctly but skipped the memory
+steps and then claimed there was "no matching past incident" without having searched. Prompts alone aren't
+enough, so the loop enforces it: if `service_health` reports a current incident and the model tries to answer
+without having searched memory and saved a postmortem, it is sent back once to do so.
+
 ## Metrics exposed
 
 | Metric | Labels |
@@ -193,6 +222,6 @@ creating a duplicate. The same symptoms after it was resolved count as a recurre
 2. ✅ Log ingester → SQLite + Chroma (incremental, time-windowed summaries)
 3. ✅ Agent loop with tools (Groq / Gemini / Ollama, swappable)
 4. ✅ Incident memory (postmortems with human review, "this matches INC-001")
-5. Alertmanager webhook → auto-investigation → Discord
+5. ✅ Alertmanager webhook → auto-investigation → Discord, with model fallback and a memory guardrail
 6. Evaluation harness: inject N faults and score root-cause accuracy and time to diagnosis
 7. Streamlit UI showing the agent's reasoning steps, plus deployment

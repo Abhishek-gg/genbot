@@ -63,3 +63,29 @@ def test_retries_groq_output_parse_failure(monkeypatch):
                       ok({"role": "assistant", "content": "done"})])
     c = client(lambda req: next(responses), monkeypatch)
     assert c.chat([{"role": "user", "content": "hi"}])["content"] == "done"
+
+
+DAILY_LIMIT = httpx.Response(429, headers={"retry-after": "547"}, json={"error": {
+    "message": "Rate limit reached ... on tokens per day (TPD): Limit 200000, Used 198865"}})
+
+
+def test_daily_quota_switches_to_fallback_model_without_waiting(monkeypatch):
+    models, sleeps = [], []
+    responses = iter([DAILY_LIMIT, ok({"role": "assistant", "content": "done"})])
+
+    def handler(req):
+        models.append(json.loads(req.content)["model"])
+        return next(responses)
+
+    c = client(handler, monkeypatch, sleeps)
+    assert c.chat([{"role": "user", "content": "hi"}])["content"] == "done"
+    assert models == ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+    assert c.model == "openai/gpt-oss-20b" and sleeps == []  # later calls stay on the fallback
+
+
+def test_quota_with_no_fallback_left_raises(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "k")
+    c = ChatClient("groq", fallbacks=[], http=httpx.Client(transport=httpx.MockTransport(lambda r: DAILY_LIMIT)),
+                   sleep=lambda s: None)
+    with pytest.raises(LLMError, match="quota exhausted"):
+        c.chat([{"role": "user", "content": "hi"}])

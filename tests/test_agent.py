@@ -91,3 +91,44 @@ def test_memory_instructions_only_when_memory_tools_exist():
     Agent(with_mem, WithMemory()).ask("?")
     assert "Incident memory" not in plain.requests[0][0][0]["content"]
     assert "call save_postmortem once" in with_mem.requests[0][0][0]["content"]
+
+
+class MemoryTools(FakeTools):
+    def __init__(self, health="CURRENT INCIDENT: began ~09:33:00 UTC"):
+        super().__init__()
+        self.health = health
+
+    @staticmethod
+    def specs():
+        return [{"type": "function", "function": {"name": n}}
+                for n in ("service_health", "search_past_incidents", "save_postmortem")]
+
+    def run(self, name, args):
+        self.calls.append((name, args))
+        return self.health if name == "service_health" else f"{name} ok"
+
+
+def test_skipped_memory_steps_are_enforced_once():
+    answer_early = {"role": "assistant", "content": "premature answer"}
+    llm = FakeLLM([
+        {"role": "assistant", "content": "", "tool_calls": [tool_call("a", "service_health", "{}")]},
+        answer_early,  # tries to answer without touching memory
+        {"role": "assistant", "content": "", "tool_calls": [tool_call("b", "search_past_incidents", "{}"),
+                                                            tool_call("c", "save_postmortem", "{}")]},
+        {"role": "assistant", "content": "final, INC-001 saved"},
+    ])
+    result = Agent(llm, MemoryTools()).ask("?")
+    assert result.answer == "final, INC-001 saved"
+    assert [s.tool for s in result.steps] == ["service_health", "search_past_incidents", "save_postmortem"]
+    nudge = llm.requests[2][0][-1]["content"]
+    assert "not called search_past_incidents or save_postmortem" in nudge
+
+
+def test_no_nudge_when_healthy_or_after_one_reminder():
+    llm = FakeLLM([{"role": "assistant", "content": "", "tool_calls": [tool_call("a", "service_health", "{}")]},
+                   {"role": "assistant", "content": "healthy"}])
+    assert Agent(llm, MemoryTools(health="ABNORMAL NOW: nothing")).ask("?").answer == "healthy"
+
+    stubborn = FakeLLM([{"role": "assistant", "content": "", "tool_calls": [tool_call("a", "service_health", "{}")]},
+                        {"role": "assistant", "content": "first"}, {"role": "assistant", "content": "second"}])
+    assert Agent(stubborn, MemoryTools()).ask("?").answer == "second"  # reminded once, then accepted

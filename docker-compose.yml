@@ -25,7 +25,19 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=15d
-    depends_on: [shopapi]
+    depends_on: [shopapi, alertmanager]
+    restart: unless-stopped
+
+  # Groups firing alerts and calls GenBot's responder (on the host) to investigate them.
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    ports: ["9093:9093"]
+    volumes:
+      - ./infra/alertmanager:/etc/alertmanager:ro
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    extra_hosts:
+      - host.docker.internal:host-gateway  # Docker Desktop provides this; Linux needs the mapping
     restart: unless-stopped
 
   # Vector DB as a server: the ingester writes and the agent reads at the same time,

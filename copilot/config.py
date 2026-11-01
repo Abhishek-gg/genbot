@@ -33,5 +33,7 @@ RETENTION_DAYS = float(os.getenv("COPILOT_RETENTION_DAYS", "7"))
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "Abhishek-gg/genbot")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")  # optional; raises the GitHub API rate limit
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")  # unset: the responder prints to the console
+RESPONDER_PORT = int(os.getenv("RESPONDER_PORT", "8090"))
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")
 LLM_MODEL = os.getenv("LLM_MODEL")  # defaults per provider, see llm.PROVIDERS
