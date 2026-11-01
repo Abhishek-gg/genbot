@@ -68,6 +68,10 @@ def test_classify_separates_now_from_recovered():
     assert status == "earlier" and text.startswith("peaked 2 at") and onset is None
 
     assert classify(pts([0.1, 0.2, 0.12, 0.18] * 5), floor=0.5, now=NOW)[0] == "normal"  # noise, not an incident
+    # Recovering: the 2-minute average is still high, but the last minute is back to normal.
+    # (Shape taken from the real samples behind an evaluation misdiagnosis.)
+    status, text, _ = classify(pts([0.024] * 20 + [2.4] * 6 + [0.024] * 5), floor=0.5, now=NOW)
+    assert status == "earlier" and text.endswith("now 0.024")
     # Abnormal for the whole window: the usual level is itself past the floor.
     status, text, _ = classify(pts([0.6] * 20), floor=0.3, now=NOW)
     assert status == "now" and "whole window" in text

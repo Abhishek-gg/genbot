@@ -18,7 +18,8 @@ from .vectorstore import WindowIndex
 MAX_SERIES = 8
 NOISE_RATIO = 2.5  # swings smaller than this (max/min) are reported as normal fluctuation
 
-CURRENT_S = 120  # "now" means the average of the last two minutes
+CURRENT_S = 120  # "now" means the average of the last two minutes...
+LATEST_S = 60  # ...provided the last minute is still abnormal too
 
 # (title, PromQL, floor). A value is abnormal above the floor, or above NOISE_RATIO x its usual level
 # if that is higher. A floor of None means informational only (the request rate is never "abnormal").
@@ -85,9 +86,12 @@ def classify(points: list[tuple[float, float]], floor: float, now: float) -> tup
     threshold = floor if usual >= floor else max(floor, NOISE_RATIO * usual)
     recent = [v for t, v in pts if t >= now - CURRENT_S] or [pts[-1][1]]
     current = sum(recent) / len(recent)
+    latest = [v for t, v in pts if t >= now - LATEST_S] or [pts[-1][1]]
     t_peak, peak = max(pts, key=lambda p: p[1])
 
-    if current > threshold:
+    # A high 2-minute average whose latest samples are all normal again is a recovery in progress,
+    # not a current problem (the average lags behind a fault that has just ended).
+    if current > threshold and max(latest) > threshold:
         onset = None  # start of the episode that is still going on
         for t, v in pts:
             if v <= threshold:
@@ -101,7 +105,7 @@ def classify(points: list[tuple[float, float]], floor: float, now: float) -> tup
         return "now", text, onset
     if peak > threshold:
         last_bad = max(t for t, v in pts if v > threshold)
-        return "earlier", f"peaked {fmt(peak)} at {hhmmss(t_peak)}, normal again after {hhmmss(last_bad)}, now {fmt(current)}", None
+        return "earlier", f"peaked {fmt(peak)} at {hhmmss(t_peak)}, normal again after {hhmmss(last_bad)}, now {fmt(latest[-1])}", None
     return "normal", fmt(current), None
 
 

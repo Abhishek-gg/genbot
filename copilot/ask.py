@@ -16,17 +16,20 @@ from .tools import Toolbox
 from .vectorstore import WindowIndex
 
 
-def build_agent(provider: str, model: str | None, on_step=None) -> Agent:
+def build_agent(provider: str, model: str | None, on_step=None, memory: IncidentMemory | None = None,
+                fallbacks: list[str] | None = None) -> Agent:
+    """memory: defaults to the real incident memory. fallbacks: None uses the provider's defaults,
+    [] pins the model (the evaluation does this so results come from one model)."""
     toolbox = Toolbox(
         config.PROMETHEUS_URL,
         WindowIndex(config.CHROMA),
         LogStore(config.LOG_DB),
         github_repo=config.GITHUB_REPO,
         github_token=config.GITHUB_TOKEN,
-        memory=IncidentMemory(config.INCIDENT_DB, config.CHROMA),
+        memory=memory or IncidentMemory(config.INCIDENT_DB, config.CHROMA),
     )
     # 6 investigation steps + searching memory + saving the postmortem, with headroom.
-    return Agent(ChatClient(provider, model), toolbox, max_steps=10, on_step=on_step)
+    return Agent(ChatClient(provider, model, fallbacks=fallbacks), toolbox, max_steps=10, on_step=on_step)
 
 
 def main() -> None:

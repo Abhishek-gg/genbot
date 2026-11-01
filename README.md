@@ -4,8 +4,9 @@ An agentic RAG system that diagnoses production incidents by reasoning over **li
 (Prometheus), **semantically indexed logs**, **deploy history** (GitHub) and **long-term memory
 of past incidents**.
 
-> Status: **Phase 5 of 7**. The demo service, log ingester, incident agent, incident memory and alert-driven
-> investigation are built, and the agent has
+> Status: **Phase 6 of 7**. The demo service, log ingester, incident agent, incident memory, alert-driven
+> investigation and evaluation harness are built. In the evaluation so far GenBot diagnosed 9 of 10 injected
+> scenarios correctly (see [Evaluation](#evaluation)), and the agent has
 > correctly diagnosed each of the five live scenarios (see [First live results](#first-live-results)).
 
 ## How it works
@@ -204,6 +205,43 @@ steps and then claimed there was "no matching past incident" without having sear
 enough, so the loop enforces it: if `service_health` reports a current incident and the model tries to answer
 without having searched memory and saved a postmortem, it is sent back once to do so.
 
+## Evaluation
+
+`python -m copilot.evaluate` measures GenBot instead of trusting single demos. Each trial resets every fault,
+lets the service settle, injects **one** fault, waits two minutes for symptoms, asks a neutral question
+("Something is wrong with ShopAPI right now. What's causing it?") and grades the answer's **Root cause** line:
+
+- **Grading** is a transparent keyword classifier ([copilot/evaluate.py](copilot/evaluate.py)): the cause category
+  mentioned *earliest* in the root-cause line wins, so "memory leak leading to CPU saturation" counts as *memory*.
+  It is unit-tested against real answers from live runs, including wrong ones.
+- **Each trial is independent**: the model is pinned (no fallback), incident memory is a separate, emptied store,
+  and scenario order is shuffled within each round.
+- Results are written to [eval/results/](eval/results/) as JSONL (full answers) plus a Markdown report.
+
+```bash
+.venv/Scripts/python -m copilot.ingest                                   # terminal 1
+.venv/Scripts/python -m copilot.evaluate --trials 2                      # terminal 2 (stop the responder first)
+.venv/Scripts/python -m copilot.evaluate --trials 2 --model openai/gpt-oss-20b
+```
+
+### Results so far
+
+| Model | Correct | Median time to diagnosis | Mean tool calls | Mean tokens |
+|---|---|---|---|---|
+| `gpt-oss-20b` | **7/8 (88%)**: 2/2 payment, 2/2 database, 1/1 memory, 1/1 CPU, 1/2 healthy | 137 s | 7.1 | 25,261 |
+| `gpt-oss-120b` | 2/2 before hitting its daily quota (payment, memory) | 63 s | 6.5 | 18,576 |
+
+Both runs stopped early on Groq's free daily quota of 200K tokens per model (one CPU trial each did not run).
+The full `gpt-oss-120b` run is pending.
+
+**The one misdiagnosis was a real tool bug, found by the evaluation.** A *healthy* trial that ran right after a
+database trial was diagnosed as "slow database queries". Replaying `service_health` against the real Prometheus
+history for that moment showed why: latency had been back to normal for a full minute, but the tool judged "now" by
+the average of the last 2 minutes, which still included the tail of the previous fault, so it reported the database
+as **ABNORMAL NOW**. The fix: a signal only counts as abnormal now if its last minute is abnormal too; otherwise it is
+listed as recovered. The same replay now reports "ABNORMAL NOW: nothing", while replaying during the actual
+database fault still reports it. The evaluation's settle time also went up from 120 s to 210 s.
+
 ## Metrics exposed
 
 | Metric | Labels |
@@ -223,5 +261,5 @@ without having searched memory and saved a postmortem, it is sent back once to d
 3. ✅ Agent loop with tools (Groq / Gemini / Ollama, swappable)
 4. ✅ Incident memory (postmortems with human review, "this matches INC-001")
 5. ✅ Alertmanager webhook → auto-investigation → Discord, with model fallback and a memory guardrail
-6. Evaluation harness: inject N faults and score root-cause accuracy and time to diagnosis
+6. ✅ Evaluation harness: inject N faults and score root-cause accuracy and time to diagnosis (full 120b run pending)
 7. Streamlit UI showing the agent's reasoning steps, plus deployment

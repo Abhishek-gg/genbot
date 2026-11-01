@@ -86,3 +86,11 @@ def test_toolbox_without_memory_hides_memory_tools():
     tb = Toolbox("http://prom", index=None, store=None)
     assert "save_postmortem" not in {s["function"]["name"] for s in tb.specs()}
     assert tb.run("save_postmortem", PAYMENT).startswith("error: unknown tool")
+
+
+def test_clear_empties_records_and_search(mem):
+    mem.save(**PAYMENT)
+    mem.save(**DB)
+    mem.clear()
+    assert mem.recent() == [] and mem.search(PAYMENT["symptoms"]) == []
+    assert mem.save(**DB)[0].id == "INC-001"  # numbering starts again

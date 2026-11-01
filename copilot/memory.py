@@ -65,13 +65,13 @@ def parse_id(incident_id: str) -> int:
 
 
 class IncidentMemory:
-    def __init__(self, db_path: Path, chroma_location: str | Path, clock=time.time):
+    def __init__(self, db_path: Path, chroma_location: str | Path, clock=time.time, collection: str = COLLECTION):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(db_path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
         self.col = connect(chroma_location).get_or_create_collection(
-            COLLECTION, configuration={"hnsw": {"space": "cosine"}})
+            collection, configuration={"hnsw": {"space": "cosine"}})
         self.clock = clock
 
     # --- records --------------------------------------------------------------
@@ -133,6 +133,14 @@ class IncidentMemory:
     def reject(self, incident_id: str, reason: str) -> Incident:
         """The diagnosis was wrong: keep the record, but never offer it as a similar incident."""
         return self._set_status(incident_id, "rejected", reason, None)
+
+    def clear(self) -> None:
+        """Delete every incident (the evaluation starts each trial from an empty memory)."""
+        ids = [f"INC-{r[0]:03d}" for r in self.db.execute("SELECT n FROM incidents")]
+        if ids:
+            self.col.delete(ids=ids)
+        with self.db:
+            self.db.execute("DELETE FROM incidents")
 
     # --- search ---------------------------------------------------------------
 
