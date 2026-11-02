@@ -1,0 +1,13 @@
+# Single-container version of infra/alertmanager/alertmanager.yml: the responder is on localhost.
+route:
+  receiver: genbot
+  group_by: [job]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: genbot
+    webhook_configs:
+      - url: http://127.0.0.1:8090/alert
+        send_resolved: true

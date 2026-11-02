@@ -123,3 +123,18 @@ def test_http_endpoint():
             assert json.load(r) == {"status": "ok"}
     finally:
         server.shutdown()
+
+
+def test_investigations_are_logged_for_the_ui(tmp_path):
+    log = tmp_path / "investigations.jsonl"
+    h = Harness()
+    h.r.log_path = log
+    h.r.handle(payload(alert("HighErrorRate")))
+    h.r.work_once()
+    h.r.investigate = lambda q: (_ for _ in ()).throw(RuntimeError("down"))
+    h.r.handle(payload(alert("MemoryGrowth")))
+    h.r.work_once()
+    first, second = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert first["alerts"] == ["HighErrorRate"] and first["incident"] == "INC-007"
+    assert first["steps"][0] == {"tool": "service_health", "args": {}}
+    assert second["alerts"] == ["MemoryGrowth"] and second["error"] == "RuntimeError: down"

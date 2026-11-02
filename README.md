@@ -4,9 +4,9 @@ An agentic RAG system that diagnoses production incidents by reasoning over **li
 (Prometheus), **semantically indexed logs**, **deploy history** (GitHub) and **long-term memory
 of past incidents**.
 
-> Status: **Phase 6 of 7**. The demo service, log ingester, incident agent, incident memory, alert-driven
-> investigation and evaluation harness are built. In the evaluation so far GenBot diagnosed 9 of 10 injected
-> scenarios correctly (see [Evaluation](#evaluation)), and the agent has
+> Status: **all 7 phases built**. The demo service, log ingester, incident agent, incident memory, alert-driven
+> investigation, evaluation harness, web UI and replay page are built. In the latest evaluation GenBot diagnosed
+> 9 of 9 scenarios correctly on its default model (see [Evaluation](#evaluation)), and the agent has
 > correctly diagnosed each of the five live scenarios (see [First live results](#first-live-results)).
 
 ## How it works
@@ -224,15 +224,20 @@ lets the service settle, injects **one** fault, waits two minutes for symptoms, 
 .venv/Scripts/python -m copilot.evaluate --trials 2 --model openai/gpt-oss-20b
 ```
 
-### Results so far
+### Results
 
 | Model | Correct | Median time to diagnosis | Mean tool calls | Mean tokens |
 |---|---|---|---|---|
-| `gpt-oss-20b` | **7/8 (88%)**: 2/2 payment, 2/2 database, 1/1 memory, 1/1 CPU, 1/2 healthy | 137 s | 7.1 | 25,261 |
-| `gpt-oss-120b` | 2/2 before hitting its daily quota (payment, memory) | 63 s | 6.5 | 18,576 |
+| `gpt-oss-120b` (default) | **9/9 (100%)**: 2/2 healthy, 2/2 database, 2/2 payment, 2/2 CPU, 1/1 memory | 134 s | 6.4 | 22,754 |
+| `gpt-oss-20b` (fallback) | 7/8 (88%): the one miss was the tool bug below, since fixed | 137 s | 7.1 | 25,261 |
 
-Both runs stopped early on Groq's free daily quota of 200K tokens per model (one CPU trial each did not run).
-The full `gpt-oss-120b` run is pending.
+One trial per model did not run because Groq's free tier allows 200K tokens per model per rolling 24 hours, and a
+diagnosis uses about 18–25K. These are small samples (two trials per scenario), not a benchmark.
+
+The `gpt-oss-120b` run also showed that two investigations used all 10 tool calls on extra log searches and metric
+queries, so the loop forced an answer before the postmortem was saved (5 of 7 saved). The guardrail now reserves a
+final **memory-only round**: once the investigation budget is spent during an incident, the model may only search
+memory and save the postmortem, then must answer.
 
 **The one misdiagnosis was a real tool bug, found by the evaluation.** A *healthy* trial that ran right after a
 database trial was diagnosed as "slow database queries". Replaying `service_health` against the real Prometheus
@@ -241,6 +246,48 @@ the average of the last 2 minutes, which still included the tail of the previous
 as **ABNORMAL NOW**. The fix: a signal only counts as abnormal now if its last minute is abnormal too; otherwise it is
 listed as recovered. The same replay now reports "ABNORMAL NOW: nothing", while replaying during the actual
 database fault still reports it. The evaluation's settle time also went up from 120 s to 210 s.
+
+## Web UI
+
+```bash
+.venv/Scripts/streamlit run copilot/ui.py      # http://localhost:8501
+```
+
+| Tab | What it does |
+|---|---|
+| 💬 Ask | Ask GenBot a question and watch every tool call (arguments and output) as it happens, then the answer |
+| 📈 Service health | The same now/recovered/normal view the agent gets, plus live charts of errors, latency, CPU and memory |
+| 🧠 Incidents | Review the agent's postmortems: resolve with the fix that worked, or reject a wrong diagnosis |
+| 🚨 Alert feed | Every automatic investigation the responder ran when an alert fired |
+| 🧪 Chaos lab | Buttons to inject each fault and reset, for demos |
+| 📏 Evaluation | The evaluation reports from `eval/results` |
+
+## Deployment
+
+**Replay page (free, live):** a static page built from real evaluation runs: the scoreboard, step-by-step
+replays of investigations with GenBot's exact answers, and the bug story. Every `service_health` view on it is
+replayed from the recorded Prometheus history at the moment of the question; nothing is invented. It is hosted as a
+free static Hugging Face Space.
+
+```bash
+.venv/Scripts/python deploy/build_static.py                                  # needs Prometheus running
+.venv/Scripts/python deploy/publish_static.py --repo <hf-user>/<space-name>   # needs HF_TOKEN in .env
+```
+
+**Full live stack (any Docker host):** `deploy/hf/` builds one container that runs everything under supervisord:
+ShopAPI, load generator, Prometheus, Alertmanager, Chroma, ingester, responder and the UI on port 7860. Prometheus and
+Alertmanager binaries are checked against their published SHA-256 sums. For a public demo it caps questions per
+visitor (`DEMO_MAX_QUESTIONS`) and clears injected faults after 10 minutes (`scripts/fault_ttl.py`). Hugging Face now
+requires a paid plan for Docker Spaces, so this image is meant for a free VM (for example Azure for Students):
+
+```bash
+.venv/Scripts/python deploy/build_space.py
+docker build -t genbot dist/hf-space
+docker run -p 7860:7860 -e GROQ_API_KEY=... genbot
+```
+
+To share the local stack for an interview without hosting it, a temporary tunnel works with no account:
+`cloudflared tunnel --url http://localhost:8501`.
 
 ## Metrics exposed
 
@@ -261,5 +308,5 @@ database fault still reports it. The evaluation's settle time also went up from 
 3. ✅ Agent loop with tools (Groq / Gemini / Ollama, swappable)
 4. ✅ Incident memory (postmortems with human review, "this matches INC-001")
 5. ✅ Alertmanager webhook → auto-investigation → Discord, with model fallback and a memory guardrail
-6. ✅ Evaluation harness: inject N faults and score root-cause accuracy and time to diagnosis (full 120b run pending)
-7. Streamlit UI showing the agent's reasoning steps, plus deployment
+6. ✅ Evaluation harness: inject N faults and score root-cause accuracy and time to diagnosis
+7. ✅ Streamlit UI showing the agent's reasoning steps, plus deployment (replay page + all-in-one image)

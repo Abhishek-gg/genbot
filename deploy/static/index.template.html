@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GenBot Replays</title>
+<meta name="description" content="Replays of real investigations by GenBot, an agentic RAG incident copilot over live metrics, logs and incident memory.">
+<style>
+  :root {
+    --bg: #f7f8fa; --surface: #ffffff; --surface-2: #f0f2f5; --text: #1c2330; --muted: #5d6775;
+    --border: #dde2e8; --accent: #2563eb; --accent-soft: #e5edff; --ok: #15803d; --ok-soft: #e3f4e8;
+    --bad: #b42318; --bad-soft: #fde8e6; --warn: #a15c07; --code-bg: #f3f5f8;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1218; --surface: #161b23; --surface-2: #1d232d; --text: #e6e9ee; --muted: #9aa4b2;
+      --border: #2a313c; --accent: #7aa2ff; --accent-soft: #1d2a4a; --ok: #5dd38a; --ok-soft: #15301f;
+      --bad: #ff8a7a; --bad-soft: #3a1b18; --warn: #f0b45c; --code-bg: #12161d;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1218; --surface: #161b23; --surface-2: #1d232d; --text: #e6e9ee; --muted: #9aa4b2;
+    --border: #2a313c; --accent: #7aa2ff; --accent-soft: #1d2a4a; --ok: #5dd38a; --ok-soft: #15301f;
+    --bad: #ff8a7a; --bad-soft: #3a1b18; --warn: #f0b45c; --code-bg: #12161d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: clamp(28px, 5vw, 40px); margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 { font-size: 22px; margin: 44px 0 12px; }
+  h3 { font-size: 17px; margin: 0 0 8px; }
+  p { margin: 0 0 12px; }
+  a { color: var(--accent); }
+  .lede { color: var(--muted); font-size: 18px; max-width: 720px; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px;
+           background: var(--accent-soft); color: var(--accent); font-weight: 600; margin-bottom: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .stat .n { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+  .stat .l { color: var(--muted); font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .table-wrap { overflow-x: auto; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 13px; font-weight: 600; }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.bad { background: var(--bad-soft); color: var(--bad); }
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .tabs button { font: inherit; font-size: 15px; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+                 border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+  .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .q { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  .meta { color: var(--muted); font-size: 14px; margin-bottom: 14px; }
+  .steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 16px; }
+  .step { font-family: var(--mono); font-size: 13px; padding: 4px 9px; border-radius: 6px;
+          background: var(--surface-2); border: 1px solid var(--border); }
+  .arrow { color: var(--muted); font-size: 13px; }
+  pre { margin: 0; padding: 12px 14px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+        font: 12.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
+  code { font-family: var(--mono); font-size: 0.9em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  details { margin: 12px 0; }
+  summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+  .answer ul, .answer ol { margin: 4px 0 12px; padding-left: 22px; }
+  .answer li { margin: 2px 0; }
+  .two { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  @media (min-width: 820px) { .two { grid-template-columns: 1fr 1fr; } }
+  .label { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase;
+           letter-spacing: 0.04em; margin-bottom: 6px; }
+  svg text { fill: var(--text); font: 13px system-ui, sans-serif; }
+  svg .box { fill: var(--surface-2); stroke: var(--border); }
+  svg .hl { fill: var(--accent-soft); stroke: var(--accent); }
+  svg .line { stroke: var(--muted); fill: none; stroke-width: 1.4; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <span class="badge">Replay of real runs, not a live system</span>
+  <h1>GenBot</h1>
+  <p class="lede">An agentic RAG incident copilot. A small online shop runs with real traffic, metrics and logs. Faults are
+    injected on purpose, and GenBot works out what broke by choosing its own tools: live Prometheus metrics, semantic log
+    search, deploy history and a memory of past incidents. Everything below is recorded from real runs.</p>
+
+  <div class="grid" id="stats"></div>
+
+  <h2>How it works</h2>
+  <div class="card">
+    <svg viewBox="0 0 960 240" width="100%" role="img" aria-label="Architecture: ShopAPI sends metrics to Prometheus and logs to an ingester; the agent queries Prometheus, Chroma, SQLite, GitHub and incident memory; Alertmanager triggers it automatically.">
+      <rect class="box" x="10" y="90" width="150" height="60" rx="8"/><text x="85" y="117" text-anchor="middle">ShopAPI</text><text x="85" y="135" text-anchor="middle" font-size="11">+ chaos switches</text>
+      <rect class="box" x="230" y="20" width="170" height="50" rx="8"/><text x="315" y="50" text-anchor="middle">Prometheus (metrics)</text>
+      <rect class="box" x="230" y="95" width="170" height="50" rx="8"/><text x="315" y="117" text-anchor="middle">Log ingester</text><text x="315" y="134" text-anchor="middle" font-size="11">SQLite + Chroma</text>
+      <rect class="box" x="230" y="170" width="170" height="50" rx="8"/><text x="315" y="192" text-anchor="middle">Incident memory</text><text x="315" y="209" text-anchor="middle" font-size="11">postmortems, human-reviewed</text>
+      <rect class="hl" x="490" y="70" width="190" height="100" rx="10"/><text x="585" y="105" text-anchor="middle" font-weight="600">Incident agent</text><text x="585" y="125" text-anchor="middle" font-size="12">LLM tool-calling loop</text><text x="585" y="143" text-anchor="middle" font-size="12">plan → tool → observe</text>
+      <rect class="box" x="760" y="20" width="190" height="50" rx="8"/><text x="855" y="50" text-anchor="middle">Alertmanager</text>
+      <rect class="box" x="760" y="170" width="190" height="50" rx="8"/><text x="855" y="192" text-anchor="middle">Diagnosis</text><text x="855" y="209" text-anchor="middle" font-size="11">UI · Discord · postmortem</text>
+      <path class="line" d="M160 110 L230 45"/><path class="line" d="M160 120 L230 120"/>
+      <path class="line" d="M400 45 L490 95"/><path class="line" d="M400 120 L490 120"/><path class="line" d="M400 195 L490 150"/>
+      <path class="line" d="M400 45 L760 45"/><path class="line" d="M760 55 L680 85"/><path class="line" d="M680 150 L760 190"/>
+    </svg>
+  </div>
+
+  <h2>Evaluation</h2>
+  <p>Each trial resets the service, injects <strong>one</strong> fault, waits two minutes for symptoms, then asks the same
+    neutral question: <em>"Something is wrong with ShopAPI right now. What's causing it?"</em> The answer's
+    <strong>Root cause</strong> line is graded automatically against the fault that was actually injected.</p>
+  <div class="card table-wrap" id="scoreboard"></div>
+  <p class="meta" id="score-note"></p>
+
+  <h2>Investigation replays</h2>
+  <p>Pick a scenario to see what GenBot did: the tools it chose, in order, what the health check showed at that moment,
+    and its final answer, word for word.</p>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <div class="card" id="replay"></div>
+
+  <h2>A bug the evaluation found</h2>
+  <div class="card" id="story"></div>
+
+  <footer>Data recorded <span id="generated"></span>. Built with FastAPI, Prometheus, Alertmanager, Chroma, SQLite,
+    Streamlit and Groq's free tier.</footer>
+</main>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const DATA = JSON.parse(document.getElementById("data").textContent);
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const LABEL = {healthy: "Healthy (no fault)", database: "Slow database", payment: "Payment gateway errors",
+               memory: "Memory leak", cpu: "CPU saturation"};
+
+// Minimal Markdown for the agent's answers: bold, inline code, bullet and numbered lists.
+function md(text) {
+  const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+  let html = "", list = null;
+  for (const raw of String(text).split("\n")) {
+    const line = raw.trimEnd();
+    const m = line.match(/^\s*(?:([-*])|(\d+)\.)\s+(.*)$/);
+    const kind = m ? (m[1] ? "ul" : "ol") : null;
+    if (list && kind !== list) { html += `</${list}>`; list = null; }
+    if (kind) { if (!list) { html += `<${kind}>`; list = kind; } html += `<li>${inline(m[3])}</li>`; }
+    else if (line.trim()) html += `<p>${inline(line)}</p>`;
+  }
+  return html + (list ? `</${list}>` : "");
+}
+
+function renderStats() {
+  const s = DATA.headline;
+  $("stats").innerHTML = s.map((x) => `<div class="card stat"><div class="n">${esc(x.value)}</div><div class="l">${esc(x.label)}</div></div>`).join("");
+}
+
+function renderScoreboard() {
+  const runs = DATA.runs;
+  const head = `<tr><th>Scenario</th>${runs.map((r) => `<th>${esc(r.model)}</th>`).join("")}</tr>`;
+  const rows = Object.keys(LABEL).map((sc) => `<tr><td>${LABEL[sc]}</td>${runs.map((r) => {
+    const ts = r.trials.filter((t) => t.scenario === sc && !t.error);
+    if (!ts.length) return "<td>–</td>";
+    const ok = ts.filter((t) => t.correct).length;
+    return `<td><span class="pill ${ok === ts.length ? "ok" : "bad"}">${ok}/${ts.length}</span></td>`;
+  }).join("")}</tr>`).join("");
+  const total = `<tr><td><strong>Overall</strong></td>${runs.map((r) => {
+    const ts = r.trials.filter((t) => !t.error), ok = ts.filter((t) => t.correct).length;
+    const secs = ts.map((t) => t.seconds).sort((a, b) => a - b), med = secs.length ? secs[Math.floor(secs.length / 2)] : 0;
+    return `<td><strong>${ok}/${ts.length}</strong> · median ${Math.round(med)}s</td>`;
+  }).join("")}</tr>`;
+  $("scoreboard").innerHTML = `<table>${head}${rows}${total}</table>`;
+  $("score-note").textContent = DATA.score_note;
+}
+
+function renderReplay(sc) {
+  document.querySelectorAll("#tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.sc === sc));
+  const r = DATA.replays[sc];
+  if (!r) { $("replay").innerHTML = "<p>No recorded run for this scenario.</p>"; return; }
+  const steps = r.tools.map((t, i) => `<span class="step">${esc(t)}</span>${i < r.tools.length - 1 ? '<span class="arrow">→</span>' : ""}`).join("");
+  $("replay").innerHTML = `
+    <div class="q">"${esc(r.question)}"</div>
+    <div class="meta">${esc(r.when)} UTC · ${esc(r.model)} · ${r.tools.length} tool calls · ${Math.round(r.seconds)}s · ${r.tokens.toLocaleString()} tokens ·
+      <span class="pill ${r.correct ? "ok" : "bad"}">graded ${r.correct ? "correct" : "wrong"}</span></div>
+    <div class="label">Tools GenBot chose</div>
+    <div class="steps">${steps}</div>
+    <div class="two">
+      <div><div class="label">service_health at that moment</div><pre>${esc(r.health)}</pre>
+        <p class="meta" style="margin-top:6px">Replayed from the recorded Prometheus history at the time of the question,
+          over ${r.health_minutes} minutes${r.health_exact ? " (the window the agent asked for)" : " (this run didn't record the agent's window)"}.</p></div>
+      <div><div class="label">GenBot's answer</div><div class="answer">${md(r.answer)}</div></div>
+    </div>`;
+}
+
+function renderStory() {
+  const s = DATA.story;
+  $("story").innerHTML = `
+    <p>${esc(s.summary)}</p>
+    <div class="two">
+      <div><div class="label">Before the fix: what the tool reported</div><pre>${esc(s.before)}</pre></div>
+      <div><div class="label">After the fix: same moment, same data</div><pre>${esc(s.after)}</pre></div>
+    </div>
+    <p style="margin-top:12px">${esc(s.fix)}</p>`;
+}
+
+renderStats();
+renderScoreboard();
+$("tabs").innerHTML = Object.keys(LABEL).filter((k) => DATA.replays[k])
+  .map((k) => `<button role="tab" data-sc="${k}">${LABEL[k]}</button>`).join("");
+$("tabs").addEventListener("click", (e) => { if (e.target.dataset.sc) renderReplay(e.target.dataset.sc); });
+renderReplay(Object.keys(DATA.replays)[0]);
+renderStory();
+$("generated").textContent = DATA.generated;
+</script>
+</body>
+</html>

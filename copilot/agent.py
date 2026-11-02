@@ -62,6 +62,8 @@ MEMORY_STEPS = ("search_past_incidents", "save_postmortem")
 MEMORY_NUDGE = ("Before you answer: service_health shows a current incident, but you have not called {missing}. "
                 "Call search_past_incidents with the symptoms, then save_postmortem with your diagnosis, "
                 "then give your final answer.")
+BUDGET_NUDGE = ("You have used all your investigation tool calls. Before answering, call only {missing} "
+                "(search past incidents with the symptoms, then save the postmortem). Then give your final answer.")
 
 
 def missing_memory_steps(steps: list["Step"]) -> list[str]:
@@ -115,12 +117,24 @@ class Agent:
         steps: list[Step] = []
         answer = ""
         nudged = False
+        budget = self.max_steps
+        memory_round = False  # an extra, memory-only round after the investigation budget runs out
 
         while True:
-            out_of_steps = len(steps) >= self.max_steps
-            if out_of_steps:
-                messages.append({"role": "user", "content": FORCE_ANSWER})
-            msg = self.llm.chat(messages, None if out_of_steps else tools)
+            allowed = tools
+            if len(steps) >= budget:
+                missing = missing_memory_steps(steps) if has_memory and not memory_round else []
+                if missing:
+                    memory_round = True
+                    budget = len(steps) + len(missing)
+                    messages.append({"role": "user", "content": BUDGET_NUDGE.format(missing=" and ".join(missing))})
+                else:
+                    messages.append({"role": "user", "content": FORCE_ANSWER})
+                    allowed = None
+            if memory_round and allowed is not None:
+                allowed = [t for t in tools if t["function"]["name"] in MEMORY_STEPS]
+            out_of_steps = allowed is None
+            msg = self.llm.chat(messages, allowed)
             messages.append(msg)
             if not msg.get("tool_calls"):
                 missing = missing_memory_steps(steps) if has_memory and not nudged and not out_of_steps else []

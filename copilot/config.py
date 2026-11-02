@@ -22,6 +22,7 @@ LOG_FILE = Path(os.getenv("COPILOT_LOG_FILE", ROOT / "logs" / "shopapi.log"))
 DATA_DIR = Path(os.getenv("COPILOT_DATA_DIR", ROOT / "data"))
 LOG_DB = DATA_DIR / "logs.db"
 INCIDENT_DB = DATA_DIR / "incidents.db"
+INVESTIGATIONS_LOG = DATA_DIR / "investigations.jsonl"  # automatic investigations, shown in the UI
 # Chroma server from docker-compose. A folder path here switches to embedded mode (single process only).
 CHROMA = os.getenv("CHROMA_URL", "http://localhost:8001")
 
@@ -33,6 +34,8 @@ RETENTION_DAYS = float(os.getenv("COPILOT_RETENTION_DAYS", "7"))
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "Abhishek-gg/genbot")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")  # optional; raises the GitHub API rate limit
+# Public demo limits (0 = off). The hosted Space sets these so visitors can't drain the LLM quota.
+DEMO_MAX_QUESTIONS = int(os.getenv("DEMO_MAX_QUESTIONS", "0"))  # per browser session
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")  # unset: the responder prints to the console
 RESPONDER_PORT = int(os.getenv("RESPONDER_PORT", "8090"))
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")

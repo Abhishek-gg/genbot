@@ -132,3 +132,29 @@ def test_no_nudge_when_healthy_or_after_one_reminder():
     stubborn = FakeLLM([{"role": "assistant", "content": "", "tool_calls": [tool_call("a", "service_health", "{}")]},
                         {"role": "assistant", "content": "first"}, {"role": "assistant", "content": "second"}])
     assert Agent(stubborn, MemoryTools()).ask("?").answer == "second"  # reminded once, then accepted
+
+
+def test_memory_round_after_investigation_budget_runs_out():
+    investigate = {"role": "assistant", "content": "", "tool_calls": [tool_call("x", "service_health", "{}")]}
+    llm = FakeLLM([
+        investigate, investigate,  # uses the whole budget (2) on investigation
+        {"role": "assistant", "content": "", "tool_calls": [tool_call("m1", "search_past_incidents", "{}"),
+                                                            tool_call("m2", "save_postmortem", "{}")]},
+        {"role": "assistant", "content": "final with INC-001"},
+    ])
+    result = Agent(llm, MemoryTools(), max_steps=2).ask("?")
+    assert result.answer == "final with INC-001"
+    assert [s.tool for s in result.steps][-2:] == ["search_past_incidents", "save_postmortem"]
+
+    memory_round_messages, memory_round_tools = llm.requests[2]
+    assert "used all your investigation tool calls" in memory_round_messages[-1]["content"]
+    assert [t["function"]["name"] for t in memory_round_tools] == ["search_past_incidents", "save_postmortem"]
+    final_messages, final_tools = llm.requests[3]
+    assert final_tools is None and final_messages[-1]["content"] == FORCE_ANSWER
+
+
+def test_no_memory_round_when_healthy():
+    investigate = {"role": "assistant", "content": "", "tool_calls": [tool_call("x", "service_health", "{}")]}
+    llm = FakeLLM([investigate, {"role": "assistant", "content": "healthy"}])
+    result = Agent(llm, MemoryTools(health="ABNORMAL NOW: nothing"), max_steps=1).ask("?")
+    assert result.answer == "healthy" and llm.requests[1][1] is None  # straight to the forced answer

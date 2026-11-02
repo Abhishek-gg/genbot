@@ -17,7 +17,7 @@ import statistics
 import sys
 import time
 import urllib.request
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -87,6 +87,7 @@ class Trial:
     answer: str
     error: str | None = None
     asked_at: str = ""
+    steps: list[dict] = field(default_factory=list)  # each tool call with its arguments and (truncated) output
 
 
 def set_chaos(settings: dict | None) -> None:
@@ -135,7 +136,8 @@ def run_trial(name: str, model: str, memory: IncidentMemory, settle_s: int, faul
     predicted = grade(r.answer)
     return Trial(name, expected, predicted, predicted == expected, r.model, round(r.seconds, 1), len(r.steps),
                  r.llm_calls, r.tokens, [s.tool for s in r.steps], root_cause_line(r.answer), r.answer,
-                 asked_at=asked_at)
+                 asked_at=asked_at,
+                 steps=[{"tool": s.tool, "args": s.args, "result": s.result[:2000]} for s in r.steps])
 
 
 def report(trials: list[Trial], model: str, started: str) -> str:

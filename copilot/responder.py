@@ -111,10 +111,23 @@ class _Seen:
     names: frozenset[str]
 
 
+def record(path, names: list[str], question: str, result: Result | None, error: Exception | None) -> None:
+    """Append one investigation to a JSONL log, which the UI's alert feed reads."""
+    entry = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "alerts": names, "question": question}
+    if result is not None:
+        entry.update(answer=result.answer, incident=incident_id(result), model=result.model,
+                     seconds=round(result.seconds, 1), steps=[{"tool": s.tool, "args": s.args} for s in result.steps])
+    if error is not None:
+        entry["error"] = f"{type(error).__name__}: {error}"[:500]
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
 class Responder:
     def __init__(self, investigate: Callable[[str], Result], notify: Callable[[dict], None], model: str = "",
-                 clock=time.time):
+                 clock=time.time, log_path=None):
         self.investigate, self.notify, self.model, self.clock = investigate, notify, model, clock
+        self.log_path = log_path
         self.jobs: queue.Queue = queue.Queue()
         self.seen: dict[str, _Seen] = {}
         self.lock = threading.Lock()
@@ -146,12 +159,16 @@ class Responder:
 
     def work_once(self) -> None:
         names, question = self.jobs.get()
+        result, error = None, None
         try:
             result = self.investigate(question)
             self.notify(investigation_message(names, result, self.model))
         except Exception as e:  # report the failure instead of dying silently
+            error = e
             self.notify(error_message(names, e))
         finally:
+            if self.log_path:
+                record(self.log_path, names, question, result, error)
             self.jobs.task_done()
 
     def start_worker(self) -> threading.Thread:
@@ -205,7 +222,8 @@ def main() -> None:
         return agent.ask(question)
 
     model = config.LLM_MODEL or PROVIDERS[config.LLM_PROVIDER][2]
-    responder = Responder(investigate, Notifier(config.DISCORD_WEBHOOK_URL), model=model)
+    responder = Responder(investigate, Notifier(config.DISCORD_WEBHOOK_URL), model=model,
+                          log_path=config.INVESTIGATIONS_LOG)
     responder.start_worker()
     server = make_server(responder, config.RESPONDER_PORT)
     target = "Discord" if config.DISCORD_WEBHOOK_URL else "console (set DISCORD_WEBHOOK_URL to post to Discord)"
