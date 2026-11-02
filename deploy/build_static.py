@@ -32,6 +32,7 @@ short_description: Replays of an agentic RAG incident copilot
 
 Replays of real investigations by GenBot, an agentic RAG incident copilot over live metrics, logs and incident memory.
 This page is static: everything on it was recorded from real runs.
+Source code: https://github.com/{repo}
 """
 
 
@@ -129,6 +130,7 @@ def main() -> None:
                 ", ".join(f"{s} ({m})" for m, s in errors) + "."
     data = {
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "repo": f"https://github.com/{config.GITHUB_REPO}",
         "headline": [
             {"value": f"{ok}/{len(done)}", "label": f"scenarios diagnosed correctly ({main_run['model']})"},
             {"value": f"{statistics.median(t['seconds'] for t in done):.0f}s", "label": "median time to diagnosis"},
@@ -147,7 +149,7 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")  # can't close the <script> early
     (OUT / "index.html").write_text(TEMPLATE.read_text(encoding="utf-8").replace("__DATA__", payload), encoding="utf-8")
-    (OUT / "README.md").write_text(SPACE_README, encoding="utf-8")
+    (OUT / "README.md").write_text(SPACE_README.replace("{repo}", config.GITHUB_REPO), encoding="utf-8")
     print(f"built {OUT / 'index.html'} from {', '.join(r['file'] for r in runs)}")
 
 

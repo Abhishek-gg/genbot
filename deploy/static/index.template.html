@@ -82,6 +82,7 @@
   <p class="lede">An agentic RAG incident copilot. A small online shop runs with real traffic, metrics and logs. Faults are
     injected on purpose, and GenBot works out what broke by choosing its own tools: live Prometheus metrics, semantic log
     search, deploy history and a memory of past incidents. Everything below is recorded from real runs.</p>
+  <p id="links"></p>
 
   <div class="grid" id="stats"></div>
 
@@ -205,6 +206,7 @@ $("tabs").addEventListener("click", (e) => { if (e.target.dataset.sc) renderRepl
 renderReplay(Object.keys(DATA.replays)[0]);
 renderStory();
 $("generated").textContent = DATA.generated;
+if (DATA.repo) $("links").innerHTML = `<a href="${esc(DATA.repo)}">Source code, tests and evaluation results on GitHub →</a>`;
 </script>
 </body>
 </html>
